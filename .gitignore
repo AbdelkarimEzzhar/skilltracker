@@ -1,0 +1,35 @@
+# Node dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# OS and editor
+.DS_Store
+
+# Vercel
+.vercel
+
+# SSL
+*.pem
+
+# TypeScript
+*.tsbuildinfo
+
+# Coverage
+coverage/
