@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { Competence } from '../models/Competence';
+import { ActivityProfile, StudentCompetence } from '../models';
+import { generateRecommendationsForStudent } from '../services/recommendationEngine';
 
 /**
  * Create Competence (Admin)
@@ -176,6 +178,39 @@ export const deleteCompetence = async (req: Request, res: Response): Promise<voi
         if (!competence) {
             res.status(404).json({ error: 'Competence not found', statusCode: 404 });
             return;
+        }
+
+        const impactedStudentIds = await StudentCompetence.distinct('studentId', { competenceId: id });
+        if (impactedStudentIds.length) {
+            await StudentCompetence.deleteMany({ competenceId: id });
+
+            for (const studentId of impactedStudentIds) {
+                const allSkills = await StudentCompetence.find({ studentId }).select('progressPercentage confidenceScore');
+                const totalProgress = allSkills.reduce((sum, skill) => {
+                    const value = skill.progressPercentage ?? skill.confidenceScore ?? 0;
+                    const clamped = Math.min(100, Math.max(0, value));
+                    return sum + clamped;
+                }, 0);
+
+                const existingProfile = await ActivityProfile.findOne({ studentId });
+                const bonusXp = existingProfile?.bonusExperiencePoints || 0;
+                const totalXp = totalProgress + bonusXp;
+                const now = new Date();
+
+                const profile = await ActivityProfile.findOneAndUpdate(
+                    { studentId },
+                    { $set: { experiencePoints: totalXp, lastActivityDate: now } },
+                    { new: true, upsert: true, setDefaultsOnInsert: true }
+                );
+
+                const nextLevel = Math.floor((profile?.experiencePoints || 0) / 100) + 1;
+                if (profile && profile.level !== nextLevel) {
+                    profile.level = nextLevel;
+                    await profile.save();
+                }
+
+                await generateRecommendationsForStudent(studentId.toString(), true);
+            }
         }
 
         res.status(200).json({

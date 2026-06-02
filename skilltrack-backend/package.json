@@ -4,11 +4,13 @@
     "description": "SkillTrack Backend - Academic and Professional Companion Platform",
     "main": "dist/server.js",
     "scripts": {
-        "dev": "ts-node src/server.ts",
+        "dev": "tsx watch src/server.ts",
         "build": "tsc",
         "start": "node dist/server.js",
         "seed": "ts-node seed.ts",
         "seed:admin": "ts-node seed-admin.ts",
+        "seed:resources": "ts-node seed-resources.ts",
+        "seed:resources:extra": "tsx seed-resources-extra.ts",
         "typecheck": "tsc --noEmit",
         "lint": "eslint src/**/*.ts"
     },
@@ -39,6 +41,7 @@
         "@types/jsonwebtoken": "^8.5.8",
         "@types/node": "^20.10.6",
         "ts-node": "^10.9.2",
+        "tsx": "^4.19.2",
         "typescript": "^5.3.3"
     }
 }

@@ -50,6 +50,7 @@ export const studentApi = {
     addAcademicCourse: (data: any) => api.post('/student/academic-records/courses', data),
     getSkills: (params?: any) => api.get('/student/skills', { params }),
     updateSkill: (data: any) => api.post('/student/skills', data),
+    deleteSkill: (id: string) => api.delete(`/student/skills/${id}`),
     getGoals: (params?: any) => api.get('/student/goals', { params }),
     createGoal: (data: any) => api.post('/student/goals', data),
     updateGoal: (id: string, data: any) => api.put(`/student/goals/${id}`, data),
@@ -59,6 +60,7 @@ export const studentApi = {
     getRecommendations: (params?: any) => api.get('/student/recommendations', { params }),
     trainRecommendationModel: () => api.post('/student/recommendations/train'),
     generateRecommendations: () => api.post('/student/recommendations/generate'),
+    startRecommendation: (id: string) => api.post(`/student/recommendations/${id}/start`),
     completeRecommendation: (id: string) => api.post(`/student/recommendations/${id}/complete`),
     ignoreRecommendation: (id: string) => api.post(`/student/recommendations/${id}/ignore`),
 };

@@ -13,3 +13,4 @@ export { ActivityProfile, type IActivityProfile } from './ActivityProfile';
 export { AcademicRecord, type IAcademicRecord } from './AcademicRecord';
 export { Recommendation, type IRecommendation } from './Recommendation';
 export { AIRecommendationModel, type IAIRecommendationModel } from './AIRecommendationModel';
+export { Resource, type IResource } from './Resource';

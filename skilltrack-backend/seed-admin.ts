@@ -1,8 +1,6 @@
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
-import bcryptjs from 'bcryptjs';
-import { User } from './src/models/User';
-import { ActivityProfile } from './src/models/ActivityProfile';
+import { ensureAdminUser } from './src/utils/backup-seed';
 
 dotenv.config();
 
@@ -21,59 +19,18 @@ async function seedAdmin() {
         await mongoose.connect(process.env.MONGO_URI);
         console.log('✅ Connected to MongoDB');
 
-        // Check if admin already exists
-        const existingAdmin = await User.findOne({ email: 'admin@skilltrack.com' });
-        if (existingAdmin) {
-            console.log('⚠️  Admin user already exists!');
-            console.log('   Email: admin@skilltrack.com');
-            console.log('   Password: Admin@123');
+        const result = await ensureAdminUser();
 
-            // Update password if needed
-            const response = await mongoose.connection.collection('users').findOne({
-                email: 'admin@skilltrack.com'
-            });
-            console.log('   Current data:', response);
-
+        if (!result.created) {
+            console.log('Admin user already exists');
+            console.log(`   Email: ${result.email}`);
             await mongoose.connection.close();
             return;
         }
 
-        // Create admin user
-        console.log('👤 Creating admin user...');
-        const adminUser = new User({
-            firstName: 'Admin',
-            lastName: 'User',
-            email: 'admin@skilltrack.com',
-            username: 'admin',
-            password: 'Admin@123',
-            role: 'ADMIN',
-            status: 'active',
-        });
-
-        await adminUser.save();
-        console.log('✅ Admin user created successfully!');
-        console.log('   Email: admin@skilltrack.com');
-        console.log('   Password: Admin@123');
-        console.log('   Role: ADMIN');
-
-        // Create activity profile for admin
-        const activityProfile = new ActivityProfile({
-            studentId: adminUser._id,
-            level: 1,
-            experiencePoints: 0,
-            currentStreakDays: 0,
-            longestStreakDays: 0,
-            totalHours: 0,
-            totalActivities: 0,
-            lastActivityDate: new Date(),
-        });
-        await activityProfile.save();
-        console.log('✅ Activity profile created');
-
-        console.log('\n✨ Seeding completed successfully!');
-        console.log('🚀 You can now login with:');
-        console.log('   Email: admin@skilltrack.com');
-        console.log('   Password: Admin@123');
+        console.log('Admin user created successfully');
+        console.log(`   Email: ${result.email}`);
+        console.log(`   Password: ${result.password}`);
 
         await mongoose.connection.close();
     } catch (error) {

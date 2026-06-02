@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import mongoose from 'mongoose';
 import {
     ActivityProfile,
     StudentCompetence,
@@ -13,6 +14,11 @@ import {
 } from '../models';
 import { User, Student } from '../models/User';
 import { AuthRequest } from '../types';
+import {
+    generateRecommendationsForStudent as engineGenerateRecommendationsForStudent,
+    bumpSkillsFromRecommendation,
+    resolveGoalSkills,
+} from '../services/recommendationEngine';
 
 const parseGradeTo20 = (value?: string | number | null): number | null => {
     if (value === undefined || value === null) return null;
@@ -206,6 +212,69 @@ export const updateStudentSkill = async (req: Request & AuthRequest, res: Respon
     } catch (error) {
         res.status(500).json({
             error: error instanceof Error ? error.message : 'Failed to update skill',
+            statusCode: 500,
+        });
+    }
+};
+
+/**
+ * Delete Student Skill
+ */
+export const deleteStudentSkill = async (req: Request & AuthRequest, res: Response): Promise<void> => {
+    try {
+        const studentId = req.user?.userId as string;
+        if (!studentId) {
+            res.status(401).json({ error: 'Unauthorized', statusCode: 401 });
+            return;
+        }
+
+        const { id } = req.params;
+        if (!id) {
+            res.status(400).json({ error: 'Skill ID is required', statusCode: 400 });
+            return;
+        }
+
+        const deletedSkill = await StudentCompetence.findOneAndDelete({ _id: id, studentId });
+
+        if (!deletedSkill) {
+            res.status(404).json({ error: 'Skill not found', statusCode: 404 });
+            return;
+        }
+
+        const allSkills = await StudentCompetence.find({ studentId }).select('progressPercentage confidenceScore');
+        const totalProgress = allSkills.reduce((sum, skill) => {
+            const value = skill.progressPercentage ?? skill.confidenceScore ?? 0;
+            const clamped = Math.min(100, Math.max(0, value));
+            return sum + clamped;
+        }, 0);
+
+        const existingProfile = await ActivityProfile.findOne({ studentId });
+        const bonusXp = existingProfile?.bonusExperiencePoints || 0;
+        const totalXp = totalProgress + bonusXp;
+        const now = new Date();
+
+        const profile = await ActivityProfile.findOneAndUpdate(
+            { studentId },
+            { $set: { experiencePoints: totalXp, lastActivityDate: now } },
+            { new: true, upsert: true, setDefaultsOnInsert: true }
+        );
+
+        const nextLevel = Math.floor((profile?.experiencePoints || 0) / 100) + 1;
+        if (profile && profile.level !== nextLevel) {
+            profile.level = nextLevel;
+            await profile.save();
+        }
+
+        await generateRecommendationsForStudent(studentId, true);
+
+        res.status(200).json({
+            success: true,
+            data: { message: 'Skill deleted successfully' },
+            statusCode: 200,
+        });
+    } catch (error) {
+        res.status(500).json({
+            error: error instanceof Error ? error.message : 'Failed to delete skill',
             statusCode: 500,
         });
     }
@@ -641,10 +710,41 @@ export const getCareerRoadmap = async (req: Request & AuthRequest, res: Response
             .filter((s) => s.status === 'Mastered')
             .map((s) => s.competenceId.toString());
 
+        const needsInference = goals.some((goal: any) => !goal.relatedCompetences || goal.relatedCompetences.length === 0);
+        const competences = needsInference
+            ? await Competence.find().select('_id code name domain popularityScore').lean()
+            : [];
+        const competenceById = new Map<string, any>();
+        const codeToId = new Map<string, string>();
+
+        if (needsInference) {
+            competences.forEach((competence: any) => {
+                if (competence._id) competenceById.set(competence._id.toString(), competence);
+                if (competence.code) codeToId.set(String(competence.code).toUpperCase(), competence._id.toString());
+            });
+        }
+
         const roadmap = goals.map((goal, index) => {
-            const requiredSkills = (goal.relatedCompetences || [])
-                .filter((c: any) => !masteredSkillIds.includes(c._id.toString()))
-                .map((c: any) => ({ name: c.name || c.code || 'Skill', priority: goal.priority || 'Medium' }));
+            const relatedCompetences = Array.isArray(goal.relatedCompetences) ? goal.relatedCompetences : [];
+            const relatedIds = relatedCompetences
+                .map((item: any) => (item?._id || item)?.toString())
+                .filter(Boolean) as string[];
+
+            const inferredIds = !relatedIds.length && needsInference
+                ? resolveGoalSkills(goal, competences, codeToId)
+                : [];
+
+            const skillIds = relatedIds.length ? relatedIds : inferredIds;
+
+            const requiredSkills = skillIds
+                .filter((id) => !masteredSkillIds.includes(id))
+                .map((id) => {
+                    const related = relatedCompetences.find((item: any) => item?._id?.toString() === id || item?.toString() === id);
+                    const source = related && typeof related === 'object' ? related : competenceById.get(id);
+                    if (!source) return null;
+                    return { name: source.name || source.code || 'Skill', priority: goal.priority || 'Medium' };
+                })
+                .filter(Boolean) as Array<{ name: string; priority: string | number }>;
 
             const deadline = goal.deadline ? new Date(goal.deadline) : null;
             const monthsLeft = deadline ? Math.max(1, Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30))) : 3;
@@ -919,432 +1019,7 @@ const getActiveRecommendationModel = async () => {
 };
 
 async function generateRecommendationsForStudent(studentId: string, force: boolean) {
-    const existing = await Recommendation.find({ userId: studentId });
-    if (!force && existing.length > 0) {
-        return { created: 0, updated: 0, total: existing.length };
-    }
-
-    const [user, goalsRaw, studentSkills, formations, competences] = await Promise.all([
-        Student.findById(studentId).select('filiereId bio niveau promotion expectedGraduation'),
-        Goal.find({ studentId }).select('relatedCompetences title description type targetJobTitle status deadline priority'),
-        StudentCompetence.find({ studentId }).populate('competenceId'),
-        Formation.find(),
-        Competence.find().select('_id code name domain popularityScore'),
-    ]);
-
-    const goals = goalsRaw.filter((goal: any) => {
-        const status = String(goal.status || '').toLowerCase();
-        return !status.includes('completed') && !status.includes('done');
-    });
-
-    const filiereId = (user as { filiereId?: string } | null)?.filiereId;
-    const filiere = filiereId ? await Filiere.findById(filiereId).select('titre description') : null;
-
-    const codeToId = new Map(
-        competences
-            .filter((c: any) => c.code)
-            .map((c: any) => [c.code.toString(), c._id.toString()])
-    );
-
-    const idToName = new Map(
-        competences.map((c: any) => [c._id.toString(), c.name || c.code || c._id.toString()])
-    );
-
-    const studentProfile = user as {
-        filiereId?: string;
-        bio?: string;
-        niveau?: string;
-        promotion?: number;
-        expectedGraduation?: Date | string;
-    } | null;
-
-    const profileKeywordSet = new Set<string>();
-    const keywordSet = new Set<string>();
-
-    const addTokens = (target: Set<string>, value?: string) => {
-        normalizeTokens(value || '').forEach((token) => {
-            if (!stopwords.has(token) && token.length > 2) target.add(token);
-        });
-    };
-
-    goals.forEach((goal: any) => {
-        addTokens(keywordSet, goal.title || '');
-        addTokens(keywordSet, goal.description || '');
-        addTokens(keywordSet, goal.targetJobTitle || '');
-
-        addTokens(profileKeywordSet, goal.title || '');
-        addTokens(profileKeywordSet, goal.description || '');
-        addTokens(profileKeywordSet, goal.targetJobTitle || '');
-    });
-
-    studentSkills.forEach((skill: any) => {
-        const name = skill.competenceId?.name || '';
-        addTokens(keywordSet, name);
-    });
-
-    if (filiere?.titre) {
-        addTokens(keywordSet, filiere.titre);
-        addTokens(profileKeywordSet, filiere.titre);
-    }
-
-    if ((filiere as any)?.description) {
-        addTokens(keywordSet, (filiere as any).description);
-        addTokens(profileKeywordSet, (filiere as any).description);
-    }
-
-    addTokens(keywordSet, studentProfile?.bio || '');
-    addTokens(keywordSet, studentProfile?.niveau || '');
-    addTokens(profileKeywordSet, studentProfile?.bio || '');
-    addTokens(profileKeywordSet, studentProfile?.niveau || '');
-
-    const studentLevelRank = toLevelRank(studentProfile?.niveau || null);
-    const expectedGraduationDate = studentProfile?.expectedGraduation
-        ? new Date(studentProfile.expectedGraduation)
-        : null;
-
-    const goalPlans = goals.map((goal: any) => {
-        const goalSkillIds = new Set<string>(
-            (goal.relatedCompetences || []).map((id: any) => id.toString())
-        );
-
-        if (goalSkillIds.size === 0) {
-            const goalTokens = normalizeTokens(`${goal.title || ''} ${goal.description || ''} ${goal.targetJobTitle || ''}`)
-                .filter((token) => token.length > 2 && !stopwords.has(token));
-
-            if (goalTokens.length > 0) {
-                const matchedSkills = competences
-                    .filter((c: any) => {
-                        const name = (c.name || '').toLowerCase();
-                        const domain = (c.domain || '').toLowerCase();
-                        return goalTokens.some((token) => name.includes(token) || domain.includes(token));
-                    })
-                    .sort((a: any, b: any) => (b.popularityScore || 0) - (a.popularityScore || 0))
-                    .slice(0, 10);
-
-                matchedSkills.forEach((skill: any) => goalSkillIds.add(skill._id.toString()));
-            }
-        }
-
-        const deadlineDate = goal.deadline ? new Date(goal.deadline) : null;
-        const monthsToDeadline = deadlineDate && !Number.isNaN(deadlineDate.getTime())
-            ? Math.max(0, Math.ceil((deadlineDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30)))
-            : null;
-
-        return {
-            goalId: goal._id.toString(),
-            title: goal.title || 'Objectif',
-            deadline: goal.deadline,
-            monthsToDeadline,
-            skillIds: goalSkillIds,
-        };
-    }).filter((goalPlan) => goalPlan.skillIds.size > 0);
-
-    const goalCompetenceIds = new Set<string>(
-        goalPlans.flatMap((goalPlan) => [...goalPlan.skillIds])
-    );
-
-    if (goalCompetenceIds.size === 0 && filiere?.titre) {
-        const filiereTokens = new Set(
-            normalizeTokens(filiere.titre).filter((token) => token.length > 2)
-        );
-        const fallbackSkills = competences
-            .filter((c: any) => {
-                const name = (c.name || '').toLowerCase();
-                const domain = (c.domain || '').toLowerCase();
-                return [...filiereTokens].some((token) => name.includes(token) || domain.includes(token));
-            })
-            .sort((a: any, b: any) => (b.popularityScore || 0) - (a.popularityScore || 0))
-            .slice(0, 12);
-
-        fallbackSkills.forEach((skill: any) => goalCompetenceIds.add(skill._id.toString()));
-    }
-
-    const progressMap = new Map<string, number>();
-    studentSkills.forEach((skill: any) => {
-        const id = skill.competenceId?._id?.toString();
-        if (!id) return;
-        const value = skill.progressPercentage ?? skill.confidenceScore ?? 0;
-        const clamped = Math.min(100, Math.max(0, value));
-        progressMap.set(id, clamped);
-    });
-
-    const missingSkillIds = new Set<string>(
-        [...goalCompetenceIds].filter((id) => !progressMap.has(id) || (progressMap.get(id) || 0) < 60)
-    );
-
-    const goalMissingPlans = goalPlans
-        .map((goalPlan) => {
-            const missingIds = [...goalPlan.skillIds].filter(
-                (id) => !progressMap.has(id) || (progressMap.get(id) || 0) < 60
-            );
-
-            return {
-                ...goalPlan,
-                missingIds,
-            };
-        })
-        .filter((goalPlan) => goalPlan.missingIds.length > 0);
-
-    const existingMap = new Map<string, any>();
-    existing.forEach((rec: any) => {
-        const key = `${rec.sourceType || 'Formation'}:${rec.sourceId || rec.title}:${rec.type}`;
-        existingMap.set(key, rec);
-    });
-
-    const aiModel = await getActiveRecommendationModel();
-
-    const scored = formations
-        .map((formation: any) => {
-            const mappedType = mapFormationType(formation.type);
-            if (!['Course', 'Certification', 'Book'].includes(mappedType)) {
-                return null;
-            }
-
-            const covered = (formation.coveredCompetences || []).map((item: any) => {
-                if (!item) return null;
-                const value = item.toString();
-                if (codeToId.has(value)) return codeToId.get(value);
-                return value;
-            }).filter(Boolean) as string[];
-
-            const coveredIds = new Set(covered);
-
-            const goalMatches = goalMissingPlans
-                .map((goalPlan) => {
-                    const coveredMissingIds = goalPlan.missingIds.filter((id) => coveredIds.has(id));
-                    const coveredMissingCount = coveredMissingIds.length;
-                    const coverageRatio = goalPlan.missingIds.length > 0
-                        ? coveredMissingCount / goalPlan.missingIds.length
-                        : 0;
-                    const urgencyBoost = goalPlan.monthsToDeadline !== null
-                        ? goalPlan.monthsToDeadline <= 3
-                            ? 2
-                            : goalPlan.monthsToDeadline <= 6
-                                ? 1
-                                : 0
-                        : 0;
-
-                    const objectiveScore = coveredMissingCount * 2 + coverageRatio * 3 + urgencyBoost;
-
-                    return {
-                        goalId: goalPlan.goalId,
-                        goalTitle: goalPlan.title,
-                        coveredMissingIds,
-                        coveredMissingCount,
-                        coverageRatio,
-                        urgencyBoost,
-                        objectiveScore,
-                    };
-                })
-                .filter((goalMatch) => goalMatch.coveredMissingCount > 0)
-                .sort((a, b) => b.objectiveScore - a.objectiveScore);
-
-            const bestGoalMatch = goalMatches[0] || null;
-            const hasGoalMatch = Boolean(bestGoalMatch);
-
-            if (goalMissingPlans.length > 0 && !hasGoalMatch) {
-                // If user has explicit active objective gaps, keep only formations that help at least one gap.
-                return null;
-            }
-
-            const missingCovered = hasGoalMatch
-                ? bestGoalMatch!.coveredMissingIds
-                : [...coveredIds].filter((id) => missingSkillIds.has(id));
-            const missingCount = missingCovered.length;
-
-            const formationText = `${formation.title || ''} ${formation.description || ''}`.toLowerCase();
-            const keywordHits = [...keywordSet].filter((token) => formationText.includes(token)).length;
-            const profileHits = [...profileKeywordSet].filter((token) => formationText.includes(token)).length;
-
-            const formationLevelRank = toLevelRank(formation.level || null);
-            let levelScore = 0;
-            if (studentLevelRank !== null && formationLevelRank !== null) {
-                const diff = Math.abs(studentLevelRank - formationLevelRank);
-                if (diff === 0) levelScore = 2;
-                else if (diff === 1) levelScore = 1;
-                else if (formationLevelRank - studentLevelRank >= 2) levelScore = -1;
-            }
-
-            let timelineScore = 0;
-            if (expectedGraduationDate && !Number.isNaN(expectedGraduationDate.getTime())) {
-                const monthsToGraduation = Math.max(
-                    0,
-                    Math.ceil((expectedGraduationDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30))
-                );
-                const durationHours = Number(formation.duration || 0);
-
-                if (monthsToGraduation <= 6 && durationHours > 0) {
-                    if (durationHours <= 20) timelineScore = 1;
-                    else if (durationHours >= 60) timelineScore = -1;
-                }
-            }
-
-            if (missingCount === 0 && !hasGoalMatch && keywordHits === 0 && profileHits === 0 && levelScore <= 0) {
-                return null;
-            }
-
-            let score = 0;
-            if (hasGoalMatch && bestGoalMatch) {
-                score += 4;
-                score += Math.min(8, bestGoalMatch.coveredMissingCount * 2);
-                score += Math.min(3, Math.round(bestGoalMatch.coverageRatio * 4));
-                score += bestGoalMatch.urgencyBoost;
-            } else if (missingCount > 0) {
-                score += Math.min(4, missingCount);
-            }
-            if (keywordHits > 0) score += Math.min(3, keywordHits);
-            if (profileHits > 0) score += Math.min(3, profileHits);
-            score += levelScore;
-            score += timelineScore;
-
-            const aiFeatures = toAIFeatures({
-                hasGoalMatch,
-                missingCount,
-                keywordHits,
-                profileHits,
-                levelScore,
-                timelineScore,
-            });
-            const aiProbability = predictRecommendationProbability(aiModel, aiFeatures);
-            score += (aiProbability - 0.5) * 3;
-
-            const missingSkills = missingCovered
-                .slice(0, 3)
-                .map((id) => idToName.get(id) || id)
-                .filter(Boolean);
-
-            const reasonParts: string[] = [];
-            if (hasGoalMatch && bestGoalMatch && missingSkills.length) {
-                reasonParts.push(`Pour atteindre l'objectif "${bestGoalMatch.goalTitle}", suivez cette formation pour couvrir: ${missingSkills.join(', ')}.`);
-            } else if (hasGoalMatch && bestGoalMatch) {
-                reasonParts.push(`Cette formation est alignee avec votre objectif "${bestGoalMatch.goalTitle}".`);
-            } else if (missingSkills.length) {
-                reasonParts.push(`Targets skills you are building: ${missingSkills.join(', ')}.`);
-            }
-
-            if (profileHits > 0) {
-                reasonParts.push('Aligned with your profile information and interests.');
-            }
-
-            if (levelScore > 0 && studentProfile?.niveau) {
-                reasonParts.push(`Fits your current level (${studentProfile.niveau}).`);
-            }
-
-            if (timelineScore > 0) {
-                reasonParts.push('Fits your current timeline.');
-            }
-
-            if (aiProbability >= 0.8) {
-                reasonParts.push('AI model predicts high relevance for your profile.');
-            } else if (aiProbability >= 0.65) {
-                reasonParts.push('AI model predicts good relevance for your profile.');
-            }
-
-            if (reasonParts.length === 0) {
-                reasonParts.push('Recommended to broaden your learning path.');
-            }
-
-            const reason = reasonParts.join(' ');
-
-            return {
-                formation,
-                mappedType,
-                score,
-                reason,
-                hasGoalMatch,
-                missingCount,
-                profileHits,
-                aiFeatures,
-                aiProbability,
-            };
-        })
-        .filter(Boolean) as any[];
-
-    scored.sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        const ratingA = a.formation.averageRating || 0;
-        const ratingB = b.formation.averageRating || 0;
-        return ratingB - ratingA;
-    });
-
-    const recommendations = scored.slice(0, 24).map((item) => {
-        const formation = item.formation;
-        const type = item.mappedType as 'Course' | 'Certification' | 'Book';
-        let priority = computePriority(item.hasGoalMatch, item.missingCount, item.profileHits || 0);
-
-        if (item.aiProbability >= 0.82) {
-            priority = 'High';
-        } else if (item.aiProbability >= 0.65 && priority === 'Low') {
-            priority = 'Medium';
-        }
-
-        return {
-            userId: studentId,
-            type,
-            title: formation.title,
-            description: formation.description,
-            link: formation.link,
-            priority,
-            estimatedHours: formation.duration || 6,
-            reason: item.reason,
-            status: 'Active',
-            isCompleted: false,
-            progressPercent: 0,
-            sourceId: formation._id,
-            sourceType: 'Formation',
-            aiFeatures: item.aiFeatures,
-            aiProbability: item.aiProbability,
-        };
-    });
-
-    const operations: any[] = [];
-    let created = 0;
-    let updated = 0;
-
-    recommendations.forEach((rec) => {
-        const key = `${rec.sourceType || 'Formation'}:${rec.sourceId || rec.title}:${rec.type}`;
-        const existingRec = existingMap.get(key);
-
-        if (existingRec && ['Completed', 'Ignored'].includes(existingRec.status)) {
-            return;
-        }
-
-        if (existingRec) {
-            operations.push({
-                updateOne: {
-                    filter: { _id: existingRec._id },
-                    update: {
-                        $set: {
-                            title: rec.title,
-                            description: rec.description,
-                            link: rec.link,
-                            priority: rec.priority,
-                            estimatedHours: rec.estimatedHours,
-                            reason: rec.reason,
-                            aiFeatures: rec.aiFeatures,
-                            aiProbability: rec.aiProbability,
-                        },
-                    },
-                },
-            });
-            updated += 1;
-        } else {
-            operations.push({
-                updateOne: {
-                    filter: { userId: rec.userId, sourceId: rec.sourceId, type: rec.type },
-                    update: { $setOnInsert: rec },
-                    upsert: true,
-                },
-            });
-            created += 1;
-        }
-    });
-
-    if (operations.length > 0) {
-        await Recommendation.bulkWrite(operations, { ordered: false });
-    }
-
-    return { created, updated, total: recommendations.length };
+    return engineGenerateRecommendationsForStudent(studentId, force);
 }
 
 const awardRecommendationXp = async (studentId: string, estimatedHours?: number) => {
@@ -1368,6 +1043,30 @@ const awardRecommendationXp = async (studentId: string, estimatedHours?: number)
     }
 
     return xpAward;
+};
+
+const attachTargetCompetences = async (recommendations: any[]) => {
+    const targetIds = new Set<string>();
+    recommendations.forEach((rec) => {
+        (rec.targetCompetenceIds || []).forEach((id: any) => {
+            if (id) targetIds.add(id.toString());
+        });
+    });
+
+    if (!targetIds.size) return recommendations;
+
+    const competences = await Competence.find({ _id: { $in: [...targetIds] } })
+        .select('_id name domain')
+        .lean();
+    const competenceById = new Map<string, any>();
+    competences.forEach((comp) => competenceById.set(comp._id.toString(), comp));
+
+    return recommendations.map((rec) => ({
+        ...rec,
+        targetCompetences: (rec.targetCompetenceIds || [])
+            .map((id: any) => competenceById.get(id.toString()))
+            .filter(Boolean),
+    }));
 };
 
 /**
@@ -1422,6 +1121,46 @@ export const generateRecommendations = async (req: Request & AuthRequest, res: R
 };
 
 /**
+ * Start Recommendation
+ */
+export const startRecommendation = async (req: Request & AuthRequest, res: Response): Promise<void> => {
+    try {
+        const studentId = req.user?.userId as string;
+        if (!studentId) {
+            res.status(401).json({ error: 'Unauthorized', statusCode: 401 });
+            return;
+        }
+        const { id } = req.params;
+
+        const recommendation = await Recommendation.findOne({ _id: id, userId: studentId });
+        if (!recommendation) {
+            res.status(404).json({ error: 'Recommendation not found', statusCode: 404 });
+            return;
+        }
+
+        const progress = Math.max(0, Math.min(100, Number(recommendation.progressPercent || 0)));
+        const nextProgress = progress >= 90 ? progress : Math.max(10, progress + 10);
+
+        const updated = await Recommendation.findOneAndUpdate(
+            { _id: id, userId: studentId },
+            { $set: { status: 'Active', isCompleted: false, progressPercent: nextProgress } },
+            { new: true }
+        );
+
+        res.status(200).json({
+            success: true,
+            data: updated,
+            statusCode: 200,
+        });
+    } catch (error) {
+        res.status(500).json({
+            error: error instanceof Error ? error.message : 'Failed to start recommendation',
+            statusCode: 500,
+        });
+    }
+};
+
+/**
  * Complete Recommendation
  */
 export const completeRecommendation = async (req: Request & AuthRequest, res: Response): Promise<void> => {
@@ -1446,9 +1185,11 @@ export const completeRecommendation = async (req: Request & AuthRequest, res: Re
         );
 
         const xpAward = await awardRecommendationXp(studentId, recommendation.estimatedHours);
+        await bumpSkillsFromRecommendation(studentId, updated || recommendation);
 
         // Use explicit feedback to incrementally improve the AI model.
         await trainRecommendationModelInternal(false);
+        await generateRecommendationsForStudent(studentId, true);
 
         res.status(200).json({
             success: true,
@@ -1488,6 +1229,7 @@ export const ignoreRecommendation = async (req: Request & AuthRequest, res: Resp
 
         // Ignored items are negative labels for the recommendation model.
         await trainRecommendationModelInternal(false);
+        await generateRecommendationsForStudent(studentId, true);
 
         res.status(200).json({
             success: true,
@@ -1512,13 +1254,16 @@ export const getRecommendations = async (req: Request & AuthRequest, res: Respon
             res.status(401).json({ error: 'Unauthorized', statusCode: 401 });
             return;
         }
-        await generateRecommendationsForStudent(studentId, false);
+        await generateRecommendationsForStudent(studentId, true);
 
         const { page = 1, limit = 9, type, priority, status, sort = 'priority' } = req.query;
         const pageNumber = Number(page) || 1;
         const limitNumber = Number(limit) || 9;
 
-        const match: any = { userId: studentId };
+        const userObjectId = mongoose.Types.ObjectId.isValid(studentId)
+            ? new mongoose.Types.ObjectId(studentId)
+            : studentId;
+        const match: any = { userId: userObjectId };
         if (status) match.status = status;
         if (type) match.type = type;
         if (priority) match.priority = priority;
@@ -1552,13 +1297,17 @@ export const getRecommendations = async (req: Request & AuthRequest, res: Respon
             recommendations = await Recommendation.find(match)
                 .sort({ estimatedHours: 1, createdAt: -1 })
                 .skip(skip)
-                .limit(limitNumber);
+                .limit(limitNumber)
+                .lean();
         } else {
             recommendations = await Recommendation.find(match)
                 .sort({ createdAt: -1 })
                 .skip(skip)
-                .limit(limitNumber);
+                .limit(limitNumber)
+                .lean();
         }
+
+        recommendations = await attachTargetCompetences(recommendations);
 
         res.status(200).json({
             success: true,

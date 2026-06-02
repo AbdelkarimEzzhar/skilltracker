@@ -12,12 +12,14 @@ export interface IRecommendation extends Document {
     link?: string;
     priority: 'High' | 'Medium' | 'Low';
     estimatedHours: number;
+    difficulty?: 'Beginner' | 'Intermediate' | 'Advanced';
     reason: string;
     status: 'Active' | 'Completed' | 'Ignored';
     isCompleted: boolean;
     progressPercent: number;
     sourceId?: mongoose.Types.ObjectId | string;
     sourceType?: string;
+    targetCompetenceIds?: mongoose.Types.ObjectId[];
     aiFeatures?: Record<string, number>;
     aiProbability?: number;
     createdAt: Date;
@@ -56,6 +58,11 @@ const recommendationSchema = new Schema<IRecommendation>(
             default: 5,
             min: 0,
         },
+        difficulty: {
+            type: String,
+            enum: ['Beginner', 'Intermediate', 'Advanced'],
+            default: 'Intermediate',
+        },
         reason: {
             type: String,
             required: true,
@@ -78,6 +85,12 @@ const recommendationSchema = new Schema<IRecommendation>(
         },
         sourceId: Schema.Types.Mixed,
         sourceType: String,
+        targetCompetenceIds: [
+            {
+                type: Schema.Types.ObjectId,
+                ref: 'Competence',
+            },
+        ],
         aiFeatures: {
             type: Map,
             of: Number,
@@ -99,5 +112,6 @@ recommendationSchema.index({ userId: 1, type: 1 });
 recommendationSchema.index({ userId: 1, status: 1 });
 recommendationSchema.index({ userId: 1, priority: 1 });
 recommendationSchema.index({ userId: 1, sourceId: 1 });
+recommendationSchema.index({ userId: 1, targetCompetenceIds: 1 });
 
 export const Recommendation = mongoose.model<IRecommendation>('Recommendation', recommendationSchema);

@@ -5,6 +5,8 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { connectDatabase } from './config/database';
+import { seedFromBackupIfNeeded } from './utils/backup-seed';
+import { seedResourcesIfNeeded } from './utils/auto-resources';
 import authRoutes from './routes/auth';
 import usersRoutes from './routes/users';
 import competencesRoutes from './routes/competences';
@@ -114,6 +116,32 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 const startServer = async () => {
     try {
         await connectDatabase();
+
+        try {
+            const seedResult = await seedFromBackupIfNeeded({ ensureAdmin: true });
+            if (seedResult.seeded) {
+                console.log(`Auto-seed loaded data from ${seedResult.backupDir}`);
+            } else if (seedResult.reason === 'auto-seed-disabled') {
+                console.log('Auto-seed is disabled');
+            }
+        } catch (seedError) {
+            console.warn(
+                'Auto-seed failed:',
+                seedError instanceof Error ? seedError.message : String(seedError)
+            );
+        }
+
+        try {
+            const resourceSeed = await seedResourcesIfNeeded();
+            if (resourceSeed.seeded) {
+                console.log(`Auto resources seeded: ${resourceSeed.count}`);
+            }
+        } catch (resourceError) {
+            console.warn(
+                'Auto resource seed failed:',
+                resourceError instanceof Error ? resourceError.message : String(resourceError)
+            );
+        }
 
         app.listen(PORT, () => {
             console.log('');

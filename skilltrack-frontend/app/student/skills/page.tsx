@@ -54,6 +54,8 @@ export default function StudentSkillsPage() {
     const [tab, setTab] = React.useState<'all' | 'hard' | 'soft'>('all');
     const [modalOpen, setModalOpen] = React.useState(false);
     const [formError, setFormError] = React.useState('');
+    const [actionError, setActionError] = React.useState('');
+    const [deletingId, setDeletingId] = React.useState<string | null>(null);
     const [form, setForm] = React.useState({
         competenceId: '',
         status: 'In Progress',
@@ -143,6 +145,24 @@ export default function StudentSkillsPage() {
         }
     };
 
+    const handleDeleteSkill = async (skill: SkillItem) => {
+        const skillName = skill.competenceId?.name || 'cette competence';
+        const confirmed = window.confirm(`Supprimer ${skillName} de votre portfolio ?`);
+        if (!confirmed) return;
+
+        setActionError('');
+        setDeletingId(skill._id);
+
+        try {
+            await studentApi.deleteSkill(skill._id);
+            await fetchData();
+        } catch (error: any) {
+            setActionError(error?.response?.data?.error || 'Impossible de supprimer cette competence.');
+        } finally {
+            setDeletingId(null);
+        }
+    };
+
     return (
         <ProtectedRoute requiredRole="STUDENT">
             <Layout>
@@ -159,6 +179,12 @@ export default function StudentSkillsPage() {
                             </>
                         }
                     />
+
+                    {actionError ? (
+                        <SurfaceCard className="p-4 border-[#fecaca] bg-[#fef2f2] text-[#b91c1c]">
+                            {actionError}
+                        </SurfaceCard>
+                    ) : null}
 
                     {loading ? (
                         <SurfaceCard className="p-6">
@@ -225,13 +251,23 @@ export default function StudentSkillsPage() {
                                                             </h3>
                                                             <Pill className="mt-2 bg-[#f3f4f6] text-[#111827]">{skill.competenceId?.domain || 'Domaine non renseigne'}</Pill>
                                                         </div>
-                                                        <button
-                                                            onClick={() => openUpdateModal(skill)}
-                                                            className="text-[#111827] text-lg leading-none"
-                                                            title="Mettre a jour"
-                                                        >
-                                                            ⋮
-                                                        </button>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                onClick={() => openUpdateModal(skill)}
+                                                                className="text-sm font-semibold text-[#111827] hover:text-[#1d4ed8]"
+                                                                title="Mettre a jour"
+                                                            >
+                                                                Modifier
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteSkill(skill)}
+                                                                className="text-sm font-semibold text-[#b91c1c] hover:text-[#991b1b] disabled:opacity-60"
+                                                                disabled={deletingId === skill._id}
+                                                                title="Supprimer"
+                                                            >
+                                                                {deletingId === skill._id ? 'Suppression...' : 'Supprimer'}
+                                                            </button>
+                                                        </div>
                                                     </div>
 
                                                     <div className="mt-4 flex items-center justify-between">

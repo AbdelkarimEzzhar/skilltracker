@@ -3,6 +3,7 @@ import {
     getStudentDashboard,
     getStudentSkills,
     updateStudentSkill,
+    deleteStudentSkill,
     getStudentGoals,
     createStudentGoal,
     updateStudentGoal,
@@ -10,16 +11,12 @@ import {
     getStudentProfile,
     updateStudentProfile,
     getCareerRoadmap,
-    getRecommendations,
-    generateRecommendations,
-    trainRecommendationModel,
-    completeRecommendation,
-    ignoreRecommendation,
     getStudentAcademicRecords,
     addStudentAcademicCourse,
     getStudentAchievements,
 } from '../controllers/students';
 import { authMiddleware, studentOnly } from '../middleware/auth';
+import recommendationsRoutes from './recommendations';
 
 const router = Router();
 
@@ -33,6 +30,7 @@ router.get('/profile', getStudentProfile);
 router.put('/profile', updateStudentProfile);
 router.get('/skills', getStudentSkills);
 router.post('/skills', updateStudentSkill);
+router.delete('/skills/:id', deleteStudentSkill);
 router.get('/academic-records', getStudentAcademicRecords);
 router.post('/academic-records/courses', addStudentAcademicCourse);
 router.get('/goals', getStudentGoals);
@@ -40,11 +38,7 @@ router.post('/goals', createStudentGoal);
 router.put('/goals/:id', updateStudentGoal);
 router.delete('/goals/:id', deleteStudentGoal);
 router.get('/roadmap', getCareerRoadmap);
-router.get('/recommendations', getRecommendations);
 router.get('/achievements', getStudentAchievements);
-router.post('/recommendations/generate', generateRecommendations);
-router.post('/recommendations/train', trainRecommendationModel);
-router.post('/recommendations/:id/complete', completeRecommendation);
-router.post('/recommendations/:id/ignore', ignoreRecommendation);
+router.use('/recommendations', recommendationsRoutes);
 
 export default router;
