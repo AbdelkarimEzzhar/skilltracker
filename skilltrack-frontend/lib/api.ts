@@ -36,7 +36,6 @@ export const authApi = {
 
 export const competenceApi = {
     getAll: (params?: any) => api.get('/competences', { params }),
-    getById: (id: string) => api.get(`/competences/${id}`),
     create: (data: any) => api.post('/competences', data),
     update: (id: string, data: any) => api.put(`/competences/${id}`, data),
     delete: (id: string) => api.delete(`/competences/${id}`),
@@ -58,7 +57,6 @@ export const studentApi = {
     getRoadmap: () => api.get('/student/roadmap'),
     getAchievements: (params?: any) => api.get('/student/achievements', { params }),
     getRecommendations: (params?: any) => api.get('/student/recommendations', { params }),
-    trainRecommendationModel: () => api.post('/student/recommendations/train'),
     generateRecommendations: () => api.post('/student/recommendations/generate'),
     startRecommendation: (id: string) => api.post(`/student/recommendations/${id}/start`),
     completeRecommendation: (id: string) => api.post(`/student/recommendations/${id}/complete`),
@@ -67,10 +65,8 @@ export const studentApi = {
 
 export const usersApi = {
     getAll: (params?: any) => api.get('/users', { params }),
-    getById: (id: string) => api.get(`/users/${id}`),
     update: (id: string, data: any) => api.put(`/users/${id}`, data),
     delete: (id: string) => api.delete(`/users/${id}`),
-    getStats: () => api.get('/users/stats/students'),
 };
 
 export const adminApi = {

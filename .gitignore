@@ -31,9 +31,6 @@ skilltrack-ec2-key.pub
 # Vercel
 .vercel
 
-# SSL
-*.pem
-
 # TypeScript
 *.tsbuildinfo
 

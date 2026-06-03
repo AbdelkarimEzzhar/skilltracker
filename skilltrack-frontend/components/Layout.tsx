@@ -57,7 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             {
                 title: 'Administration',
                 items: [
-                    { label: 'Dashboard', href: '/admin/dashboard', icon: 'dashboard' },
+                    { label: 'Tableau de bord', href: '/admin/dashboard', icon: 'dashboard' },
                     { label: 'Utilisateurs', href: '/admin/users', icon: 'user' },
                     { label: 'Compétences', href: '/admin/skills', icon: 'skills' },
                 ],

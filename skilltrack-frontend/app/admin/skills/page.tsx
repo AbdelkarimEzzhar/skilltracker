@@ -26,6 +26,13 @@ interface CompetenceForm {
     level: string;
 }
 
+const COMPETENCE_LEVEL_OPTIONS = [
+    { value: 'Debutant', label: 'Débutant' },
+    { value: 'Intermediaire', label: 'Intermédiaire' },
+    { value: 'Avance', label: 'Avancé' },
+    { value: 'Expert', label: 'Expert' },
+] as const;
+
 const initialForm: CompetenceForm = {
     code: '',
     name: '',
@@ -34,6 +41,28 @@ const initialForm: CompetenceForm = {
     category: '',
     level: 'Debutant',
 };
+
+function LevelSelect({
+    value,
+    onChange,
+}: {
+    value: string;
+    onChange: (level: string) => void;
+}) {
+    return (
+        <select
+            className="h-11 rounded-xl border border-[#d7dbe4] px-3"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+        >
+            {COMPETENCE_LEVEL_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                </option>
+            ))}
+        </select>
+    );
+}
 
 export default function SkillManagementPage() {
     const [competences, setCompetences] = React.useState<Competence[]>([]);
@@ -271,12 +300,10 @@ export default function SkillManagementPage() {
                                 <input className="h-11 rounded-xl border border-[#d7dbe4] px-3" placeholder="Nom" value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} />
                                 <input className="h-11 rounded-xl border border-[#d7dbe4] px-3" placeholder="Domaine" value={createForm.domain} onChange={(e) => setCreateForm({ ...createForm, domain: e.target.value })} />
                                 <input className="h-11 rounded-xl border border-[#d7dbe4] px-3" placeholder="Categorie" value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} />
-                                <select className="h-11 rounded-xl border border-[#d7dbe4] px-3" value={createForm.level} onChange={(e) => setCreateForm({ ...createForm, level: e.target.value })}>
-                                    <option value="Debutant">Débutant</option>
-                                    <option value="Intermediaire">Intermédiaire</option>
-                                    <option value="Avance">Avancé</option>
-                                    <option value="Expert">Expert</option>
-                                </select>
+                                <LevelSelect
+                                    value={createForm.level}
+                                    onChange={(level) => setCreateForm({ ...createForm, level })}
+                                />
                             </div>
 
                             <textarea
@@ -317,12 +344,10 @@ export default function SkillManagementPage() {
                                 <input className="h-11 rounded-xl border border-[#d7dbe4] px-3" placeholder="Nom" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
                                 <input className="h-11 rounded-xl border border-[#d7dbe4] px-3" placeholder="Domaine" value={editForm.domain} onChange={(e) => setEditForm({ ...editForm, domain: e.target.value })} />
                                 <input className="h-11 rounded-xl border border-[#d7dbe4] px-3" placeholder="Categorie" value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} />
-                                <select className="h-11 rounded-xl border border-[#d7dbe4] px-3" value={editForm.level} onChange={(e) => setEditForm({ ...editForm, level: e.target.value })}>
-                                    <option value="Debutant">Débutant</option>
-                                    <option value="Intermediaire">Intermédiaire</option>
-                                    <option value="Avance">Avancé</option>
-                                    <option value="Expert">Expert</option>
-                                </select>
+                                <LevelSelect
+                                    value={editForm.level}
+                                    onChange={(level) => setEditForm({ ...editForm, level })}
+                                />
                             </div>
 
                             <textarea

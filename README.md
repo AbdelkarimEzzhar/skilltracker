@@ -113,9 +113,7 @@ See `.env.example` for the full list.
 
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:5000/api` |
-| `NEXT_PUBLIC_ENABLE_RECOMMENDATIONS` | `true` |
-| `NEXT_PUBLIC_ENABLE_ROADMAP` | `true` |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:5000/api` (use `/api` when frontend and API share one host) |
 
 ## API overview
 
