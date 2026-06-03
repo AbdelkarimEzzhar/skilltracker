@@ -32,7 +32,7 @@ const initialForm: CompetenceForm = {
     description: '',
     domain: '',
     category: '',
-    level: 'Beginner',
+    level: 'Debutant',
 };
 
 export default function SkillManagementPage() {
@@ -272,13 +272,10 @@ export default function SkillManagementPage() {
                                 <input className="h-11 rounded-xl border border-[#d7dbe4] px-3" placeholder="Domaine" value={createForm.domain} onChange={(e) => setCreateForm({ ...createForm, domain: e.target.value })} />
                                 <input className="h-11 rounded-xl border border-[#d7dbe4] px-3" placeholder="Categorie" value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} />
                                 <select className="h-11 rounded-xl border border-[#d7dbe4] px-3" value={createForm.level} onChange={(e) => setCreateForm({ ...createForm, level: e.target.value })}>
-                                    <option value="Beginner">Beginner</option>
-                                    <option value="Intermediate">Intermediate</option>
-                                    <option value="Advanced">Advanced</option>
+                                    <option value="Debutant">Débutant</option>
+                                    <option value="Intermediaire">Intermédiaire</option>
+                                    <option value="Avance">Avancé</option>
                                     <option value="Expert">Expert</option>
-                                    <option value="Debutant">Debutant</option>
-                                    <option value="Intermediaire">Intermediaire</option>
-                                    <option value="Avance">Avance</option>
                                 </select>
                             </div>
 
@@ -321,13 +318,10 @@ export default function SkillManagementPage() {
                                 <input className="h-11 rounded-xl border border-[#d7dbe4] px-3" placeholder="Domaine" value={editForm.domain} onChange={(e) => setEditForm({ ...editForm, domain: e.target.value })} />
                                 <input className="h-11 rounded-xl border border-[#d7dbe4] px-3" placeholder="Categorie" value={editForm.category} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} />
                                 <select className="h-11 rounded-xl border border-[#d7dbe4] px-3" value={editForm.level} onChange={(e) => setEditForm({ ...editForm, level: e.target.value })}>
-                                    <option value="Beginner">Beginner</option>
-                                    <option value="Intermediate">Intermediate</option>
-                                    <option value="Advanced">Advanced</option>
+                                    <option value="Debutant">Débutant</option>
+                                    <option value="Intermediaire">Intermédiaire</option>
+                                    <option value="Avance">Avancé</option>
                                     <option value="Expert">Expert</option>
-                                    <option value="Debutant">Debutant</option>
-                                    <option value="Intermediaire">Intermediaire</option>
-                                    <option value="Avance">Avance</option>
                                 </select>
                             </div>
 

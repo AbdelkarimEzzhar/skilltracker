@@ -1254,7 +1254,10 @@ export const getRecommendations = async (req: Request & AuthRequest, res: Respon
             res.status(401).json({ error: 'Unauthorized', statusCode: 401 });
             return;
         }
-        await generateRecommendationsForStudent(studentId, true);
+        const existingCount = await Recommendation.countDocuments({ userId: studentId });
+        if (existingCount === 0) {
+            await generateRecommendationsForStudent(studentId, true);
+        }
 
         const { page = 1, limit = 9, type, priority, status, sort = 'priority' } = req.query;
         const pageNumber = Number(page) || 1;

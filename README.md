@@ -1,218 +1,174 @@
 # SkillTrack
 
-SkillTrack is a full stack academic and professional companion platform for students and administrators. It combines skill tracking, goals, roadmap planning, and course recommendations with an admin dashboard for managing users and competences.
+SkillTrack is a full-stack academic and professional companion platform for students and administrators. It combines skill tracking, goals, career roadmap planning, AI-assisted recommendations, and an embedded chatbot, with an admin dashboard for users and competences.
 
-## Overview
+**Live deployment (AWS):** http://51.21.63.138 — see [DEPLOYMENT.md](./DEPLOYMENT.md) for hosting, updates, and custom domains (e.g. `skilltrack-inpt.ma`).
 
-SkillTrack provides:
-- Student dashboards with skills, goals, roadmap, and recommendations.
-- Admin management for users and competences.
-- Secure authentication with role based access.
-- A recommendation engine that aligns formations with student objectives.
+## Features
 
-## Key Features
+### Students
+- Dashboard, profile, and academic records
+- Skills and competences with progress
+- Goals and career roadmap
+- AI recommendations (trainable from feedback)
+- Achievements and XP / activity profile
+- Floating **chatbot** (Groq) with customizable UI (position, theme, history)
 
-Student:
-- Skill tracking with progress and status
-- Academic goals and milestones
-- Roadmap planning with progress updates
-- Course and formation recommendations tied to goals
-- Profile and academic records
-- Achievements and activity metrics
+### Admins
+- Dashboard and statistics
+- User management (paginated)
+- Competence management (French level labels: Débutant → Expert)
 
-Admin:
-- System dashboard and statistics
-- User management
-- Competence management
+### Platform
+- JWT auth with **HttpOnly** cookies
+- Role-based access (ADMIN / STUDENT)
+- REST API (Express + TypeScript)
+- Responsive Next.js UI (French UI)
 
-Platform:
-- JWT authentication with HttpOnly cookies
-- Role based access control
-- REST API with typed models
-- Responsive UI
+## Tech stack
 
-## Architecture and Tech Stack
+| Layer | Stack |
+|--------|--------|
+| Frontend | Next.js 16 (App Router), React, TypeScript, Tailwind, Zustand, Axios |
+| Backend | Node.js, Express, TypeScript, Mongoose |
+| Database | MongoDB |
+| AI chat | Groq API (server-side only) |
+| Production | Docker on AWS EC2 (nginx + Next.js + Express + MongoDB) |
 
-Frontend:
-- Next.js (App Router), React, TypeScript
-- Tailwind CSS
-- Zustand for state
-- Axios for API calls
-
-Backend:
-- Node.js, Express, TypeScript
-- MongoDB with Mongoose
-- JWT auth, bcryptjs, CORS
-
-## Project Layout
+## Project layout
 
 ```
 skill/
-├── skilltrack-backend/     Express REST API
-├── skilltrack-frontend/    Next.js web app
-├── backup_mars_2026/       Sample data backup (optional)
-├── verify-setup.sh         Linux or Mac verification
-├── verify-setup.bat        Windows verification
-└── setup-all.sh            Optional setup helper
+├── skilltrack-backend/       Express API, models, recommendation engine, chat
+├── skilltrack-frontend/      Next.js app (student + admin + chatbot)
+├── deploy/aws/               EC2 Docker deployment scripts
+├── scripts/                  verify-full-app.mjs, verify-app.sh
+├── backup_mars_2026/         Optional BSON backup metadata (see DEPLOYMENT)
+├── README.md
+└── DEPLOYMENT.md
 ```
 
-## Quick Start
+## Local development
 
-Prerequisites:
+### Prerequisites
 - Node.js 18+
-- MongoDB 6.0+
+- MongoDB 6+ running locally
 - npm
 
-1) Backend
-```
+### 1. Backend
+
+```bash
 cd skilltrack-backend
 npm install
 cp .env.example .env
-npm run seed
+# Edit .env: MONGO_URI, JWT_SECRET, GROQ_API_KEY (for chatbot)
+npm run seed          # optional: sample data if backup BSON present
+npm run seed:admin    # ensures admin@skilltrack.com exists
 npm run dev
 ```
 
-2) Frontend
-```
-cd ../skilltrack-frontend
+API: http://localhost:5000/api — health: http://localhost:5000/health
+
+### 2. Frontend
+
+```bash
+cd skilltrack-frontend
 npm install
 cp .env.example .env.local
 npm run dev
 ```
 
-3) Access
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:5000/api
+App: http://localhost:3000
 
-Demo login:
-- Email: admin@skilltrack.com
-- Password: Admin@123
+### Default admin (after seed:admin)
 
-## Environment Variables
+| Email | Password |
+|--------|----------|
+| admin@skilltrack.com | Admin@123 |
 
-Backend (.env):
+Local DB may also contain users from your own imports; use the same credentials as in your MongoDB.
+
+## Environment variables
+
+### Backend (`skilltrack-backend/.env`)
+
+| Variable | Description |
+|----------|-------------|
+| `MONGO_URI` | e.g. `mongodb://localhost:27017/skilltrack_db` |
+| `JWT_SECRET` | Long random string (production) |
+| `JWT_EXPIRE` | e.g. `7d` |
+| `PORT` | `5000` |
+| `NODE_ENV` | `development` or `production` |
+| `CORS_ORIGIN` | Frontend origin, e.g. `http://localhost:3000` |
+| `AI_PROVIDER` | `groq` (default) or `deepseek` |
+| `GROQ_API_KEY` | From [Groq Console](https://console.groq.com) — **never commit** |
+| `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` |
+| `GROQ_MODEL` | e.g. `llama-3.1-8b-instant` |
+
+Optional cross-domain cookies (split frontend/API hosts): `COOKIE_SAME_SITE=none`, `COOKIE_SECURE=true`.
+
+See `.env.example` for the full list.
+
+### Frontend (`skilltrack-frontend/.env.local`)
+
+| Variable | Description |
+|----------|-------------|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:5000/api` |
+| `NEXT_PUBLIC_ENABLE_RECOMMENDATIONS` | `true` |
+| `NEXT_PUBLIC_ENABLE_ROADMAP` | `true` |
+
+## API overview
+
+Base URL: `/api`
+
+| Area | Examples |
+|------|----------|
+| Auth | `POST /auth/login`, `GET /auth/me`, `POST /auth/logout` |
+| Admin | `GET /admin/stats` |
+| Users | `GET /users`, `PUT /users/:id` (admin) |
+| Competences | `GET /competences`, `POST /competences` (admin) |
+| Student | `/student/dashboard`, `/student/skills`, `/student/goals`, `/student/recommendations`, … |
+| Chat | `POST /chat` (authenticated, Groq on server) |
+
+## Recommendation engine
+
+Formations are scored against active goals using features (goal match, coverage, keywords, profile, level, timeline). Students can **complete** or **ignore** cards; `POST /student/recommendations/train` updates the model.
+
+## NPM scripts
+
+**Backend:** `dev`, `build`, `start`, `seed`, `seed:admin`, `typecheck`
+
+**Frontend:** `dev`, `build`, `start`, `typecheck`
+
+## Verification
+
+```bash
+node scripts/verify-full-app.mjs
 ```
-MONGO_URI=mongodb://localhost:27017/skilltrack_db
-JWT_SECRET=your_super_secret_key_change_this_in_production
-JWT_EXPIRE=7d
-PORT=5000
-NODE_ENV=development
-CORS_ORIGIN=http://localhost:3000
-```
 
-Frontend (.env.local):
-```
-NEXT_PUBLIC_API_URL=http://localhost:5000/api
-NEXT_PUBLIC_ANALYTICS_ID=
-NEXT_PUBLIC_ENABLE_RECOMMENDATIONS=true
-NEXT_PUBLIC_ENABLE_ROADMAP=true
-```
+Options: `SKIP_FRONTEND_BUILD=true`, `SKIP_BACKEND_BUILD=true`, `VERIFY_STUDENT_EMAIL`, `VERIFY_STUDENT_PASSWORD`.
 
-## API Summary
+## Deployment
 
-Base URL:
-- http://localhost:5000/api
+Production is documented in **[DEPLOYMENT.md](./DEPLOYMENT.md)**.
 
-Auth:
-- POST /auth/login
-- POST /auth/register (admin only)
-- POST /auth/logout
-- GET  /auth/me
+| Path | Use case |
+|------|----------|
+| `deploy/aws/deploy-ec2.sh` | First deploy to AWS EC2 (Free Tier–friendly) |
+| `deploy/aws/configure-groq-on-ec2.sh` | Push Groq key from local `.env` to server |
+| `deploy/aws/sync-local-db-to-ec2.sh` | **One-time** copy of local MongoDB to production |
+| `deploy/aws/apply-hostname.sh` | Custom domain / CORS (DuckDNS, `.ma`, etc.) |
 
-Admin:
-- GET  /admin/stats
-
-Users (admin only):
-- GET    /users
-- GET    /users/:id
-- PUT    /users/:id
-- DELETE /users/:id
-- GET    /users/stats/students
-
-Competences:
-- GET    /competences
-- GET    /competences/:id
-- POST   /competences (admin only)
-- PUT    /competences/:id (admin only)
-- DELETE /competences/:id (admin only)
-- GET    /competences/stats/competences (admin only)
-
-Student (student only):
-- GET  /student/dashboard
-- GET  /student/profile
-- PUT  /student/profile
-- GET  /student/skills
-- POST /student/skills
-- GET  /student/academic-records
-- POST /student/academic-records/courses
-- GET  /student/goals
-- POST /student/goals
-- PUT  /student/goals/:id
-- DELETE /student/goals/:id
-- GET  /student/roadmap
-- GET  /student/recommendations
-- POST /student/recommendations/generate
-- POST /student/recommendations/train
-- POST /student/recommendations/:id/complete
-- POST /student/recommendations/:id/ignore
-- GET  /student/achievements
-
-## Data Model Summary
-
-Core collections:
-- User (admin and student)
-- Competence
-- StudentCompetence
-- Goal
-- Formation
-- Filiere
-- Achievement
-- ActivityProfile
-
-## Recommendation Engine
-
-SkillTrack recommends formations aligned to active student goals. The engine uses a lightweight logistic regression model trained from student feedback (complete or ignore). It scores each recommendation using features such as:
-- goalMatch
-- missingCoverage
-- keywordAffinity
-- profileAffinity
-- levelFit
-- timelineFit
-
-Outputs stored per recommendation:
-- aiFeatures: the feature vector used for scoring
-- aiProbability: the predicted relevance score
-
-Training can be triggered via:
-- POST /student/recommendations/train
-
-## Scripts
-
-Backend:
-- npm run dev
-- npm run build
-- npm run start
-- npm run seed
-- npm run seed:admin
-- npm run typecheck
-- npm run lint
-
-Frontend:
-- npm run dev
-- npm run build
-- npm run start
-- npm run typecheck
-- npm run lint
-
-## Optional Data Restore
-
-A sample MongoDB backup is available under backup_mars_2026/. You can restore it using mongorestore if needed.
+**Security:** Never commit `.env`, API keys, or SSH private keys. Keys live only on the server or in your local `.env`.
 
 ## Troubleshooting
 
-- If the frontend cannot call the API, confirm NEXT_PUBLIC_API_URL and CORS_ORIGIN.
-- If login fails, run npm run seed or npm run seed:admin to create a demo user.
-- If MongoDB is not running, start it with mongod.
+| Issue | Fix |
+|--------|-----|
+| Frontend cannot reach API | Check `NEXT_PUBLIC_API_URL` and `CORS_ORIGIN` |
+| Login “User not found” on AWS | Run `npm run seed:admin` in backend container or one-time DB sync |
+| Groq chat not configured | Set `GROQ_API_KEY` on backend; run `configure-groq-on-ec2.sh` on AWS |
+| Site down after DB sync | `docker compose -f deploy/aws/docker-compose.prod.yml up -d` on EC2 |
 
 ## License
 

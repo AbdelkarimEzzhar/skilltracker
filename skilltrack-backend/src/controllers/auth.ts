@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { User, Student } from '../models/User';
 import { ActivityProfile } from '../models/ActivityProfile';
 import { generateToken } from '../utils/jwt';
+import { getAuthCookieOptions } from '../utils/authCookie';
 import { LoginRequest, RegisterRequest, UserResponse, AuthRequest } from '../types';
 
 /**
@@ -53,12 +54,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         const token = generateToken(user);
 
         // Set HttpOnly cookie (more secure than localStorage)
-        res.cookie('authToken', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-        });
+        res.cookie('authToken', token, getAuthCookieOptions());
 
         // Prepare user response (without password)
         const loginRole = user.role?.toUpperCase() === 'ADMIN' ? 'ADMIN' : 'STUDENT';
@@ -202,7 +198,8 @@ export const register = async (req: Request & AuthRequest, res: Response): Promi
  */
 export const logout = async (req: Request, res: Response): Promise<void> => {
     try {
-        res.clearCookie('authToken');
+        const { maxAge: _maxAge, ...clearOptions } = getAuthCookieOptions();
+        res.clearCookie('authToken', clearOptions);
         res.status(200).json({
             success: true,
             data: { message: 'Logged out successfully' },

@@ -9,6 +9,7 @@ import {
     StudentCompetence,
 } from '../models';
 import { Student } from '../models/User';
+import { callDeepSeekChat, isDeepSeekEnabled } from './deepseekService';
 
 const GAP_THRESHOLD = 60;
 
@@ -106,6 +107,96 @@ const deriveCareerProfiles = (goalTitle?: string, specialtyTitle?: string) => {
     });
 
     return [...roles].filter(Boolean).slice(0, 3);
+};
+
+const parseDeepSeekJson = <T>(value: string): T | null => {
+    try {
+        const cleaned = value
+            .replace(/^```json\s*/i, '')
+            .replace(/^```\s*/i, '')
+            .replace(/```$/i, '')
+            .trim();
+        return JSON.parse(cleaned) as T;
+    } catch (_error) {
+        return null;
+    }
+};
+
+const enrichRecommendationsWithDeepSeek = async (
+    recommendations: any[],
+    context: {
+        goalTitle?: string;
+        targetJobTitle?: string;
+        specialtyTitle?: string;
+        level?: string;
+        missingSkills?: string[];
+    }
+) => {
+    if (!isDeepSeekEnabled() || !recommendations.length) return recommendations;
+
+    const top = recommendations.slice(0, 10).map((rec, index) => ({
+        index,
+        title: rec.title,
+        type: rec.type,
+        priority: rec.priority,
+        estimatedHours: rec.estimatedHours,
+        description: rec.description,
+        reason: rec.reason,
+    }));
+
+    const prompt = {
+        studentContext: {
+            careerGoal: context.targetJobTitle || context.goalTitle || null,
+            specialty: context.specialtyTitle || null,
+            level: context.level || null,
+            missingSkills: context.missingSkills || [],
+        },
+        recommendations: top,
+        instructions:
+            'Rewrite each recommendation to be personalized for the student. Keep it concise, practical, and realistic. Return valid JSON only as { "items": [{ "index": number, "title": string, "description": string, "reason": string }] }.',
+    };
+
+    try {
+        const aiText = await callDeepSeekChat(
+            [
+                {
+                    role: 'system',
+                    content:
+                        'You are an academic and career advisor. You improve recommendation wording for students. Always return pure JSON when asked.',
+                },
+                { role: 'user', content: JSON.stringify(prompt) },
+            ],
+            { temperature: 0.45, maxTokens: 1200 }
+        );
+
+        const parsed = parseDeepSeekJson<{ items?: Array<{ index: number; title?: string; description?: string; reason?: string }> }>(aiText);
+        if (!parsed?.items?.length) return recommendations;
+
+        const byIndex = new Map<number, { title?: string; description?: string; reason?: string }>();
+        parsed.items.forEach((item) => {
+            if (typeof item?.index !== 'number') return;
+            byIndex.set(item.index, {
+                title: item.title?.trim(),
+                description: item.description?.trim(),
+                reason: item.reason?.trim(),
+            });
+        });
+
+        return recommendations.map((rec, index) => {
+            const rewritten = byIndex.get(index);
+            if (!rewritten) return rec;
+
+            return {
+                ...rec,
+                title: rewritten.title || rec.title,
+                description: rewritten.description || rec.description,
+                reason: rewritten.reason || rec.reason,
+            };
+        });
+    } catch (error) {
+        console.warn('DeepSeek recommendation enrichment failed:', error instanceof Error ? error.message : String(error));
+        return recommendations;
+    }
 };
 
 export const resolveGoalSkills = (
@@ -297,8 +388,10 @@ export const generateRecommendationsForStudent = async (studentId: string, force
         const missingMatches = requiredSkills.filter((id: string) => missingSkillIds.has(id));
         const targetHits = requiredSkills.filter((id: string) => targetSkillIds.has(id));
         const criticalMatches = missingMatches.filter((id: string) => targetSkillIds.has(id));
-        const bestGoal = requiredSkills.length ? findBestGoalMatch(requiredSkills) : null;
-        const goalLabel = bestGoal?.targetJobTitle || bestGoal?.title;
+        const bestGoal: { targetJobTitle?: string; title?: string } | null = requiredSkills.length
+            ? findBestGoalMatch(requiredSkills)
+            : null;
+        const goalLabel = (bestGoal as any)?.targetJobTitle || (bestGoal as any)?.title;
 
         const text = `${resource.title || ''} ${resource.description || ''}`.toLowerCase();
         const hasProfileMatch = [...profileTokens].some((token) => text.includes(token));
@@ -387,13 +480,21 @@ export const generateRecommendationsForStudent = async (studentId: string, force
         });
     }
 
+    const enrichedRecommendations = await enrichRecommendationsWithDeepSeek(recommendations, {
+        goalTitle: primaryGoal?.title,
+        targetJobTitle: primaryGoal?.targetJobTitle,
+        specialtyTitle: specialty?.titre,
+        level: student?.niveau,
+        missingSkills: [...missingSkillIds].map((id) => idToName.get(id) || id).slice(0, 12),
+    });
+
     const operations: any[] = [];
     let created = 0;
     let updated = 0;
 
     const newKeys = new Set<string>();
 
-    recommendations.forEach((rec) => {
+    enrichedRecommendations.forEach((rec) => {
         const key = `${rec.sourceType || 'Resource'}:${rec.sourceId || rec.title}:${rec.type}`;
         newKeys.add(key);
 
@@ -457,7 +558,7 @@ export const generateRecommendationsForStudent = async (studentId: string, force
         await Recommendation.bulkWrite(operations, { ordered: false });
     }
 
-    return { created, updated, total: recommendations.length };
+    return { created, updated, total: enrichedRecommendations.length };
 };
 
 export const bumpSkillsFromRecommendation = async (

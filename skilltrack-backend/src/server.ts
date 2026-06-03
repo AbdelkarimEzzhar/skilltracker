@@ -1,11 +1,10 @@
-import dotenv from 'dotenv';
-dotenv.config();
+import './config/env';
 
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { connectDatabase } from './config/database';
-import { seedFromBackupIfNeeded } from './utils/backup-seed';
+import { ensureAdminUser, seedFromBackupIfNeeded } from './utils/backup-seed';
 import { seedResourcesIfNeeded } from './utils/auto-resources';
 import authRoutes from './routes/auth';
 import usersRoutes from './routes/users';
@@ -13,6 +12,7 @@ import competencesRoutes from './routes/competences';
 import studentsRoutes from './routes/students';
 import adminRoutes from './routes/admin';
 import filieresRoutes from './routes/filieres';
+import chatRoutes from './routes/chatRoutes';
 
 /**
  * SkillTrack Backend Server
@@ -88,6 +88,7 @@ app.use('/api/skills', competencesRoutes);
 app.use('/api/student', studentsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/filieres', filieresRoutes);
+app.use('/api/chat', chatRoutes);
 
 // 404 Handler
 app.use((req, res) => {
@@ -116,6 +117,18 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 const startServer = async () => {
     try {
         await connectDatabase();
+
+        try {
+            const adminResult = await ensureAdminUser();
+            if (adminResult.created) {
+                console.log(`Default admin created (${adminResult.email}). Change the password after first login.`);
+            }
+        } catch (adminError) {
+            console.warn(
+                'Admin seed failed:',
+                adminError instanceof Error ? adminError.message : String(adminError)
+            );
+        }
 
         try {
             const seedResult = await seedFromBackupIfNeeded({ ensureAdmin: true });

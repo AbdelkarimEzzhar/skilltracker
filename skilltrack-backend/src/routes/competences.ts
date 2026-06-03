@@ -15,14 +15,14 @@ const router = Router();
  * Public routes
  */
 router.get('/', getAllCompetences);
-router.get('/:id', getCompetenceById);
 
 /**
- * Admin only routes
+ * Admin only routes (static paths before /:id)
  */
+router.get('/stats/competences', authMiddleware, adminOnly, getCompetenciesStats);
 router.post('/', authMiddleware, adminOnly, createCompetence);
+router.get('/:id', getCompetenceById);
 router.put('/:id', authMiddleware, adminOnly, updateCompetence);
 router.delete('/:id', authMiddleware, adminOnly, deleteCompetence);
-router.get('/stats/competences', authMiddleware, adminOnly, getCompetenciesStats);
 
 export default router;

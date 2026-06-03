@@ -18,6 +18,12 @@ pnpm-debug.log*
 .env
 .env.local
 .env.*.local
+deploy/aws/.env
+
+# SSH / deploy keys (never commit)
+skilltrack-ec2-key
+skilltrack-ec2-key.pub
+*.pem
 
 # OS and editor
 .DS_Store

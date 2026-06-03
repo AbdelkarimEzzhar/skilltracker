@@ -81,4 +81,19 @@ export const filieresApi = {
     getAll: (params?: any) => api.get('/filieres', { params }),
 };
 
+export type ChatMode = 'basic' | 'groq';
+
+export interface ChatHistoryMessage {
+    role: 'user' | 'assistant';
+    content: string;
+}
+
+export const chatApi = {
+    sendMessage: (
+        message: string,
+        mode: ChatMode = 'basic',
+        history: ChatHistoryMessage[] = []
+    ) => api.post('/chat', { message, mode, history }),
+};
+
 export default api;

@@ -5,6 +5,10 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/store';
 import { authApi, studentApi } from '@/lib/api';
+import Chatbot from './chatbot/Chatbot';
+import ChatbotIcon from './chatbot/ChatbotIcon';
+import { ChatPreferences, loadChatPreferences, saveChatPreferences } from '../lib/chatPreferences';
+import '../styles/Chatbot.css';
 
 interface SidebarProps {
     isOpen: boolean;
@@ -161,56 +165,54 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
     const sidebarContent = (
-        <>
-            <div className="h-full w-[240px] bg-[#f8f9fb] border-r border-[#e6e8ee] flex flex-col">
-                <div className="px-6 py-6 border-b border-[#e6e8ee] flex items-center justify-between">
-                    <h1 className="text-3xl leading-none font-bold text-black">SkillTrack</h1>
-                    <button className="h-8 w-8 rounded-lg border border-[#d8dce5] text-[#111827] text-sm">▢</button>
-                </div>
+        <div className="h-full w-[240px] bg-[#f8f9fb] border-r border-[#e6e8ee] flex flex-col">
+            <div className="px-6 py-6 border-b border-[#e6e8ee] flex items-center justify-between">
+                <h1 className="text-3xl leading-none font-bold text-black">SkillTrack</h1>
+                <button className="h-8 w-8 rounded-lg border border-[#d8dce5] text-[#111827] text-sm">▢</button>
+            </div>
 
-                <nav className="flex-1 overflow-y-auto px-3 py-4">
-                    {menuGroups.map((group) => (
-                        <div key={group.title} className="mb-6">
-                            <p className="px-3 mb-2 text-sm text-[#6b7280]">{group.title}</p>
-                            <div className="space-y-1">
-                                {group.items.map((item) => (
-                                    <Link
-                                        key={item.href}
-                                        href={item.href}
-                                        onClick={onClose}
-                                        className={`w-full px-3 py-2.5 rounded-xl flex items-center gap-3 transition ${isActive(item.href)
-                                            ? 'bg-[#eff1f5] text-black font-semibold'
-                                            : 'text-[#111827] hover:bg-[#f1f3f8]'
-                                            }`}
-                                    >
-                                        {icon(item.icon)}
-                                        <span>{item.label}</span>
-                                    </Link>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
-                </nav>
-
-                <div className="border-t border-[#e6e8ee] p-4">
-                    <div className="flex items-center gap-3 mb-3">
-                        <div className="h-10 w-10 rounded-full bg-[#1f2937] text-white flex items-center justify-center text-lg">
-                            {(user?.firstName?.[0] || 'U').toUpperCase()}
-                        </div>
-                        <div>
-                            <p className="font-semibold text-[#111827]">{user?.firstName || 'User'}</p>
-                            <p className="text-sm text-[#6b7280]">{activityMeta.xp} XP · Niveau {activityMeta.level}</p>
+            <nav className="flex-1 overflow-y-auto px-3 py-4">
+                {menuGroups.map((group) => (
+                    <div key={group.title} className="mb-6">
+                        <p className="px-3 mb-2 text-sm text-[#6b7280]">{group.title}</p>
+                        <div className="space-y-1">
+                            {group.items.map((item) => (
+                                <Link
+                                    key={item.href}
+                                    href={item.href}
+                                    onClick={onClose}
+                                    className={`w-full px-3 py-2.5 rounded-xl flex items-center gap-3 transition ${isActive(item.href)
+                                        ? 'bg-[#eff1f5] text-black font-semibold'
+                                        : 'text-[#111827] hover:bg-[#f1f3f8]'
+                                        }`}
+                                >
+                                    {icon(item.icon)}
+                                    <span>{item.label}</span>
+                                </Link>
+                            ))}
                         </div>
                     </div>
-                    <button
-                        onClick={handleLogout}
-                        className="w-full rounded-xl border border-[#d7dbe4] bg-white text-[#111827] py-2 text-sm font-medium hover:bg-[#f3f4f6]"
-                    >
-                        Déconnexion
-                    </button>
+                ))}
+            </nav>
+
+            <div className="border-t border-[#e6e8ee] p-4">
+                <div className="flex items-center gap-3 mb-3">
+                    <div className="h-10 w-10 rounded-full bg-[#1f2937] text-white flex items-center justify-center text-lg">
+                        {(user?.firstName?.[0] || 'U').toUpperCase()}
+                    </div>
+                    <div>
+                        <p className="font-semibold text-[#111827]">{user?.firstName || 'User'}</p>
+                        <p className="text-sm text-[#6b7280]">{activityMeta.xp} XP · Niveau {activityMeta.level}</p>
+                    </div>
                 </div>
+                <button
+                    onClick={handleLogout}
+                    className="w-full rounded-xl border border-[#d7dbe4] bg-white text-[#111827] py-2 text-sm font-medium hover:bg-[#f3f4f6]"
+                >
+                    Déconnexion
+                </button>
             </div>
-        </>
+        </div>
     );
 
     return (
@@ -227,38 +229,50 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             >
                 {sidebarContent}
             </aside>
-
-            <div className="hidden lg:block">{sidebarContent}</div>
         </>
     );
 };
 
-interface LayoutProps {
-    children: React.ReactNode;
-}
+export const Layout = ({ children }: { children: React.ReactNode }) => {
+    const [isSidebarOpen, setSidebarOpen] = React.useState(false);
+    const [isChatOpen, setChatOpen] = React.useState(false);
+    const [chatPreferences, setChatPreferences] = React.useState<ChatPreferences>(() =>
+        loadChatPreferences()
+    );
 
-export const Layout: React.FC<LayoutProps> = ({ children }) => {
-    const [sidebarOpen, setSidebarOpen] = React.useState(false);
+    React.useEffect(() => {
+        saveChatPreferences(chatPreferences);
+    }, [chatPreferences]);
+
+    const toggleSidebar = () => {
+        setSidebarOpen(!isSidebarOpen);
+    };
+
+    const toggleChat = () => {
+        setChatOpen(!isChatOpen);
+    };
 
     return (
-        <div className="flex min-h-screen bg-[#f5f6f8]">
-            <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-            <div className="flex-1 min-w-0">
-                <header className="lg:hidden sticky top-0 z-30 bg-white border-b border-[#e6e8ee] px-4 py-3 flex items-center gap-3">
-                    <button
-                        onClick={() => setSidebarOpen(!sidebarOpen)}
-                        className="h-9 w-9 rounded-lg border border-[#d7dbe4] text-xl leading-none"
-                    >
-                        ☰
-                    </button>
-                    <p className="font-semibold text-[#111827]">SkillTrack</p>
-                </header>
-
-                <main className="h-[calc(100vh-58px)] lg:h-screen overflow-y-auto p-4 sm:p-6 lg:p-8">
-                    {children}
-                </main>
+        <div className="min-h-screen bg-[#f5f6f8]">
+            <Sidebar isOpen={isSidebarOpen} onClose={toggleSidebar} />
+            <div className="min-h-screen lg:ml-[240px] px-4 py-4 md:px-6 md:py-6 lg:px-8 lg:py-8">
+                <button
+                    type="button"
+                    className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#d8dce5] bg-white text-[#111827] lg:hidden"
+                    onClick={toggleSidebar}
+                    aria-label="Open navigation sidebar"
+                >
+                    ☰
+                </button>
+                {children}
             </div>
+            <ChatbotIcon onClick={toggleChat} preferences={chatPreferences} />
+            <Chatbot
+                isOpen={isChatOpen}
+                onClose={toggleChat}
+                preferences={chatPreferences}
+                onPreferencesChange={setChatPreferences}
+            />
         </div>
     );
 };
