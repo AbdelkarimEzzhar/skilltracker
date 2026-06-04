@@ -18,7 +18,7 @@ Internet → Elastic IP → nginx :80
 | Region | `eu-north-1` (default in scripts) |
 | Instance | `t3.micro` (Free Tier–oriented) |
 | Stack | `deploy/aws/docker-compose.prod.yml` |
-| Public URL | http://51.21.63.138 (Elastic IP; replace with your domain when DNS is ready) |
+| Public URL | https://skilltrack.dev (also https://51.21.63.138) |
 
 All services run on **one EC2 instance** via Docker Compose (no ALB required for cost-sensitive setups).
 
@@ -135,9 +135,22 @@ Browsers need a hostname without spaces. Target examples:
 
 | Goal | Example |
 |------|---------|
+| Production | `skilltrack.dev` |
 | INPT domain | `skilltrack-inpt.ma` |
 | Free DNS | `skilltrack.duckdns.org` |
 | Instant test DNS | `skilltrack.51-21-63-138.sslip.io` |
+
+### `skilltrack.dev` (name.com)
+
+1. **Delete** wrong records: parking IP (`208.91.x.x`), duplicate A with host `skilltrack.dev`, unused AAAA.
+2. Add **A record**:
+   - **Host:** leave **blank** (root domain — do not type `skilltrack.dev` in the host field)
+   - **Answer:** `51.21.63.138`
+3. Optional **www:** host `www` → `51.21.63.138`
+4. Verify: `dig @ns1kwy.name.com skilltrack.dev A` must return `51.21.63.138`
+5. Open **https://skilltrack.dev** (HTTP redirects to HTTPS; certificate is on the server)
+
+If the browser still fails, flush DNS cache or wait up to 48 hours for propagation.
 
 ### `skilltrack-inpt.ma`
 

@@ -11,6 +11,7 @@ import {
     SurfaceCard,
 } from '@/components/student/DesignSystem';
 import { studentApi } from '@/lib/api';
+import { downloadPortfolioJson } from '@/lib/portfolioExport';
 
 interface Recommendation {
     _id: string;
@@ -23,6 +24,7 @@ interface Recommendation {
     priority: 'High' | 'Medium' | 'Low';
     createdAt: string;
     estimatedHours?: number;
+    progressPercent?: number;
 }
 
 interface SkillItem {
@@ -30,6 +32,7 @@ interface SkillItem {
     status: string;
     progressPercentage?: number;
     confidenceScore?: number;
+    competenceId?: { name?: string; code?: string };
 }
 
 interface AchievementItem {
@@ -40,50 +43,85 @@ interface AchievementItem {
     rarity?: string;
     points?: number;
     unlockedAt?: string;
-    icon?: string;
 }
 
-const skillProgress = (skill: SkillItem) => Math.max(0, Math.min(100, Number(skill.progressPercentage ?? skill.confidenceScore ?? 0)));
+const skillProgress = (skill: SkillItem) =>
+    Math.max(0, Math.min(100, Number(skill.progressPercentage ?? skill.confidenceScore ?? 0)));
 
 export default function StudentPortfolioPage() {
     const [loading, setLoading] = React.useState(true);
+    const [refreshing, setRefreshing] = React.useState(false);
     const [recommendations, setRecommendations] = React.useState<Recommendation[]>([]);
     const [skills, setSkills] = React.useState<SkillItem[]>([]);
     const [achievements, setAchievements] = React.useState<AchievementItem[]>([]);
 
-    React.useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const [recommendationsRes, skillsRes, achievementsRes] = await Promise.all([
-                    studentApi.getRecommendations({ limit: 300 }),
-                    studentApi.getSkills({ limit: 300 }),
-                    studentApi.getAchievements({ limit: 200 }),
-                ]);
+    const fetchData = React.useCallback(async () => {
+        try {
+            const [recommendationsRes, skillsRes, achievementsRes] = await Promise.all([
+                studentApi.getRecommendations({ limit: 300, status: 'Completed' }),
+                studentApi.getSkills({ limit: 300 }),
+                studentApi.getAchievements({ limit: 200 }),
+            ]);
 
-                setRecommendations(recommendationsRes.data?.data?.recommendations || []);
-                setSkills(skillsRes.data?.data?.skills || []);
-                setAchievements(achievementsRes.data?.data?.achievements || []);
-            } catch (error) {
-                setRecommendations([]);
-                setSkills([]);
-                setAchievements([]);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchData();
+            setRecommendations(recommendationsRes.data?.data?.recommendations || []);
+            setSkills(skillsRes.data?.data?.skills || []);
+            setAchievements(achievementsRes.data?.data?.achievements || []);
+        } catch {
+            setRecommendations([]);
+            setSkills([]);
+            setAchievements([]);
+        } finally {
+            setLoading(false);
+        }
     }, []);
 
-    const projects = recommendations.filter((item) => item.type === 'Project' || item.type === 'CareerPath');
-    const certifications = recommendations.filter((item) => item.type === 'Certification');
-    const completedRecommendations = recommendations.filter((item) => item.status === 'Completed');
-    const verifiedCertifications = certifications.filter((item) => item.status === 'Completed').length;
-    const masteredSkills = skills.filter((skill) => (skill.status || '').toLowerCase().includes('master')).length;
+    React.useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+
+    const handleRefresh = async () => {
+        setRefreshing(true);
+        setLoading(true);
+        try {
+            await fetchData();
+        } finally {
+            setRefreshing(false);
+        }
+    };
+
+    const handleExport = () => {
+        const completedProjects = recommendations.filter(
+            (item) => item.status === 'Completed' && (item.type === 'Project' || item.type === 'CareerPath')
+        );
+        const completedCertifications = recommendations.filter(
+            (item) => item.status === 'Completed' && item.type === 'Certification'
+        );
+        const payload = {
+            exportedAt: new Date().toISOString(),
+            projects: completedProjects,
+            certifications: completedCertifications,
+            skills: skills.map((s) => ({
+                name: s.competenceId?.name,
+                code: s.competenceId?.code,
+                status: s.status,
+                progress: skillProgress(s),
+            })),
+            achievements,
+        };
+        downloadPortfolioJson(`skilltrack-portfolio-${new Date().toISOString().slice(0, 10)}.json`, payload);
+    };
+
+    const completedProjects = recommendations.filter(
+        (item) => item.status === 'Completed' && (item.type === 'Project' || item.type === 'CareerPath')
+    );
+    const completedCertifications = recommendations.filter(
+        (item) => item.status === 'Completed' && item.type === 'Certification'
+    );
+    const masteredSkills = skills.filter((skill) => skillProgress(skill) >= 80).length;
     const averageProgress = skills.length
         ? Math.round(skills.reduce((sum, skill) => sum + skillProgress(skill), 0) / skills.length)
         : 0;
-    const portfolioScore = (averageProgress / 20).toFixed(1);
+    const portfolioScore = skills.length ? (averageProgress / 20).toFixed(1) : '0.0';
 
     return (
         <ProtectedRoute requiredRole="STUDENT">
@@ -91,12 +129,19 @@ export default function StudentPortfolioPage() {
                 <div className="max-w-[1600px] mx-auto space-y-6">
                     <SectionTitle
                         title="Mon portfolio"
-                        subtitle="Presentez vos projets, certifications et realisations"
+                        subtitle="Vos realisations validees (projets et certifications termines)"
                         actions={
                             <>
-                                <ActionButton icon={<span>⇩</span>}>Exporter</ActionButton>
-                                <ActionButton variant="primary" icon={<span>＋</span>} onClick={() => studentApi.generateRecommendations()}>
-                                    Actualiser
+                                <ActionButton icon={<span>⇩</span>} onClick={handleExport} disabled={loading}>
+                                    Exporter
+                                </ActionButton>
+                                <ActionButton
+                                    variant="primary"
+                                    icon={<span>↻</span>}
+                                    onClick={handleRefresh}
+                                    disabled={refreshing || loading}
+                                >
+                                    {refreshing ? 'Actualisation...' : 'Actualiser'}
                                 </ActionButton>
                             </>
                         }
@@ -112,14 +157,14 @@ export default function StudentPortfolioPage() {
                                 <MiniStatCard
                                     icon="▣"
                                     iconClassName="bg-[#e0e7ff] text-[#1d4ed8]"
-                                    value={String(projects.length)}
-                                    label="projets identifies"
+                                    value={String(completedProjects.length)}
+                                    label="projets termines"
                                 />
                                 <MiniStatCard
                                     icon="◉"
                                     iconClassName="bg-[#dcfce7] text-[#16a34a]"
-                                    value={String(certifications.length)}
-                                    label="certifications"
+                                    value={String(completedCertifications.length)}
+                                    label="certifications obtenues"
                                 />
                                 <MiniStatCard
                                     icon="⌛"
@@ -131,57 +176,64 @@ export default function StudentPortfolioPage() {
                                     icon="☆"
                                     iconClassName="bg-[#f3e8ff] text-[#9333ea]"
                                     value={`${portfolioScore}/5`}
-                                    label="score portfolio"
+                                    label="score competences"
                                 />
                             </div>
 
                             <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
                                 <SurfaceCard className="p-6 xl:col-span-3">
                                     <h2 className="text-lg font-bold text-black">Mes projets</h2>
-                                    <p className="mt-1 text-lg text-[#6b7280]">Projets issus de vos recommandations et parcours</p>
+                                    <p className="mt-1 text-lg text-[#6b7280]">
+                                        Uniquement les projets que vous avez termines
+                                    </p>
 
                                     <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                        {projects.map((project) => (
+                                        {completedProjects.map((project) => (
                                             <SurfaceCard key={project._id} className="overflow-hidden border-[#e8ebf2]">
-                                                <div className="h-40 bg-[#eceff4] px-4 py-3 flex items-start justify-between">
-                                                    <p className="text-lg font-semibold text-black">{project.title}</p>
-                                                    <Pill className={project.status === 'Completed' ? 'bg-[#d1fae5] text-[#059669]' : 'bg-[#1d4ed8] text-white'}>
-                                                        {project.status}
-                                                    </Pill>
+                                                <div className="h-24 bg-[#eceff4] px-4 py-3 flex items-start justify-between">
+                                                    <p className="text-lg font-semibold text-black line-clamp-2">
+                                                        {project.title}
+                                                    </p>
+                                                    <Pill className="bg-[#d1fae5] text-[#059669]">Termine</Pill>
                                                 </div>
 
                                                 <div className="p-4">
-                                                    <div className="flex items-start justify-between gap-3">
-                                                        <h3 className="text-lg font-bold text-black">{project.title}</h3>
-                                                        <button className="text-lg">⋮</button>
-                                                    </div>
-                                                    <p className="mt-2 text-lg text-[#4b5563] leading-relaxed">{project.description}</p>
+                                                    <p className="text-lg text-[#4b5563] leading-relaxed line-clamp-3">
+                                                        {project.description}
+                                                    </p>
 
                                                     <div className="mt-3 flex flex-wrap gap-2">
                                                         <Pill className="bg-[#f3f4f6] text-[#111827]">{project.type}</Pill>
                                                         <Pill className="bg-[#eef2ff] text-[#1d4ed8]">{project.priority}</Pill>
-                                                        <Pill className="bg-[#f3f4f6] text-[#111827]">{project.estimatedHours || 0}h</Pill>
+                                                        <Pill className="bg-[#f3f4f6] text-[#111827]">
+                                                            {project.estimatedHours || 0}h
+                                                        </Pill>
                                                     </div>
 
                                                     <div className="mt-4 pt-4 border-t border-[#e6e8ee] flex items-center justify-between text-lg text-[#6b7280]">
-                                                        <span>{new Date(project.createdAt).toLocaleDateString()}</span>
-                                                        <div className="flex gap-2">
+                                                        <span>{new Date(project.createdAt).toLocaleDateString('fr-FR')}</span>
+                                                        {project.link ? (
                                                             <button
-                                                                onClick={() => project.link && window.open(project.link, '_blank', 'noopener,noreferrer')}
-                                                                className="h-10 w-10 rounded-xl border border-[#d7dbe4]"
-                                                                disabled={!project.link}
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    window.open(project.link, '_blank', 'noopener,noreferrer')
+                                                                }
+                                                                className="h-10 px-3 rounded-xl border border-[#d7dbe4] text-sm font-semibold"
                                                             >
-                                                                ↗
+                                                                Voir le projet
                                                             </button>
-                                                        </div>
+                                                        ) : null}
                                                     </div>
                                                 </div>
                                             </SurfaceCard>
                                         ))}
 
-                                        {projects.length === 0 ? (
+                                        {completedProjects.length === 0 ? (
                                             <SurfaceCard className="p-5 lg:col-span-2">
-                                                <p className="text-[#6b7280] text-lg">Aucun projet disponible actuellement.</p>
+                                                <p className="text-[#6b7280] text-lg">
+                                                    Aucun projet termine. Validez une recommandation de type projet dans
+                                                    Recommandations IA pour l&apos;ajouter ici.
+                                                </p>
                                             </SurfaceCard>
                                         ) : null}
                                     </div>
@@ -189,36 +241,48 @@ export default function StudentPortfolioPage() {
 
                                 <SurfaceCard className="p-6 xl:col-span-2 h-fit">
                                     <h3 className="text-lg font-bold text-black">Certifications</h3>
-                                    <p className="mt-1 text-lg text-[#6b7280]">Vos certifications basees sur les recommandations</p>
+                                    <p className="mt-1 text-lg text-[#6b7280]">Certifications terminees uniquement</p>
 
                                     <div className="mt-5 space-y-3">
-                                        {certifications.map((cert) => (
+                                        {completedCertifications.map((cert) => (
                                             <div key={cert._id} className="rounded-2xl border border-[#e6e8ee] p-4">
                                                 <div className="flex items-start justify-between gap-4">
                                                     <div>
                                                         <p className="text-lg font-bold text-black">{cert.title}</p>
-                                                        <p className="mt-1 text-lg text-[#6b7280]">{cert.description}</p>
+                                                        <p className="mt-1 text-lg text-[#6b7280] line-clamp-2">
+                                                            {cert.description}
+                                                        </p>
                                                     </div>
-                                                    <Pill className={cert.status === 'Completed' ? 'bg-[#d1fae5] text-[#059669]' : 'bg-[#fef3c7] text-[#b45309]'}>
-                                                        {cert.status}
-                                                    </Pill>
+                                                    <Pill className="bg-[#d1fae5] text-[#059669]">Termine</Pill>
                                                 </div>
                                                 <div className="mt-4 pt-4 border-t border-[#e6e8ee] flex items-center justify-between text-lg text-[#6b7280]">
-                                                    <span>{new Date(cert.createdAt).toLocaleDateString()}</span>
+                                                    <span>{new Date(cert.createdAt).toLocaleDateString('fr-FR')}</span>
                                                     <span>{cert.priority}</span>
                                                 </div>
                                             </div>
                                         ))}
 
-                                        {certifications.length === 0 ? (
-                                            <p className="text-[#6b7280] text-lg">Aucune certification disponible.</p>
+                                        {completedCertifications.length === 0 ? (
+                                            <p className="text-[#6b7280] text-lg">
+                                                Aucune certification terminee. Marquez une formation comme terminee dans
+                                                Recommandations IA.
+                                            </p>
                                         ) : null}
                                     </div>
 
                                     <div className="mt-6 pt-5 border-t border-[#e6e8ee] space-y-2 text-lg">
-                                        <div className="flex justify-between text-[#111827]"><span>Recommandations completees</span><span>{completedRecommendations.length}</span></div>
-                                        <div className="flex justify-between text-[#111827]"><span>Certifications verifiees</span><span>{verifiedCertifications}</span></div>
-                                        <div className="flex justify-between text-[#111827]"><span>Competences maitrisees</span><span>{masteredSkills}</span></div>
+                                        <div className="flex justify-between text-[#111827]">
+                                            <span>Competences suivies</span>
+                                            <span>{skills.length}</span>
+                                        </div>
+                                        <div className="flex justify-between text-[#111827]">
+                                            <span>Competences maitrisees (&ge;80%)</span>
+                                            <span>{masteredSkills}</span>
+                                        </div>
+                                        <div className="flex justify-between text-[#111827]">
+                                            <span>Progression moyenne</span>
+                                            <span>{averageProgress}%</span>
+                                        </div>
                                     </div>
 
                                     <div className="mt-6 pt-5 border-t border-[#e6e8ee]">
@@ -228,14 +292,18 @@ export default function StudentPortfolioPage() {
                                                 <div key={achievement._id} className="rounded-xl border border-[#e6e8ee] px-3 py-2">
                                                     <div className="flex items-center justify-between gap-3">
                                                         <p className="text-lg font-semibold text-black">{achievement.title}</p>
-                                                        <Pill className="bg-[#fef3c7] text-[#b45309]">{achievement.rarity || 'Badge'}</Pill>
+                                                        <Pill className="bg-[#fef3c7] text-[#b45309]">
+                                                            {achievement.rarity || 'Badge'}
+                                                        </Pill>
                                                     </div>
-                                                    <p className="mt-1 text-xl text-[#6b7280]">{achievement.category || 'Categorie libre'}</p>
+                                                    <p className="mt-1 text-xl text-[#6b7280]">
+                                                        {achievement.category || 'Categorie libre'}
+                                                    </p>
                                                 </div>
                                             ))}
 
                                             {achievements.length === 0 ? (
-                                                <p className="text-[#6b7280] text-lg">Aucun badge disponible.</p>
+                                                <p className="text-[#6b7280] text-lg">Aucun badge debloque pour le moment.</p>
                                             ) : null}
                                         </div>
                                     </div>
